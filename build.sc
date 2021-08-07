@@ -1,11 +1,15 @@
 import mill._, scalalib._
 
-object lib1 extends ScalaModule {
-    def scalaVersion = "3.0.1"
+val crossVersions: Seq[String] = List("2.12.8", "2.13.6")
+
+object lib1 extends Cross[Lib1Module](crossVersions:_*)
+
+class Lib1Module(val crossScalaVersion: String) extends CrossScalaModule {
 }
 
-object lib2 extends ScalaModule {
-    def scalaVersion = "3.0.1"
+object lib2 extends Cross[Lib2Module](crossVersions:_*) {
+}
 
-    def moduleDeps = Seq(lib1)
+class Lib2Module(val crossScalaVersion: String) extends CrossScalaModule {
+    def moduleDeps = Seq(lib1())
 }

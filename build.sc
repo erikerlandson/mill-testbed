@@ -1,4 +1,4 @@
-import mill._, scalalib._, publish._
+import mill._, scalalib._, publish._, mill.api.PathRef
 
 val crossVersions: Seq[String] = List("2.12.8", "2.13.6")
 
@@ -50,4 +50,62 @@ trait PublishCommon extends PublishModule {
             Developer("erikerlandson", "Erik Erlandson", "http://erikerlandson.github.io/")
         )
     )
+}
+
+
+// This module isn't really a ScalaModule, but we use it to generate
+// consolidated documentation using the Scaladoc tool.
+object docs extends CrossScalaModule {
+  def scalaVersion = "2.13.6"
+  def crossScalaVersion = "2.13.6"
+
+  def docSource = T.source(millSourcePath)
+
+  def moduleDeps = Seq(lib1(), lib2())
+
+  // generate the static website
+  def site = T {
+    import mill.eval.Result
+    T.log.info(s"docSource= ${docSource().path}")
+
+    val failme = 1.0 / 0.0
+
+    for {
+      child <- os.walk(docSource().path)
+      if os.isFile(child)
+    } {
+      println(s"child= $child")
+      os.copy.over(child, T.dest / child.subRelativeTo(docSource().path), createFolders = true)
+    }
+    val files: Seq[os.Path] = T.traverse(moduleDeps)(_.allSourceFiles)().flatten.map(_.path)
+    println(s"files= $files")
+
+    val options = Seq(
+      "-classpath", compileClasspath().map(_.path).mkString(":"),
+      "-siteroot", T.dest.toString,
+      "-project-url", "https://github.com/erikerlandson/mill-testbed",
+      // "-project-logo", "logo.svg",
+      "-project-version", pubVer,
+      "-project", "milltest"
+    ) ++ scalaDocPluginClasspath().map(pluginPathRef => s"-Xplugin:${pluginPathRef.path}")
+
+    zincWorker.worker().docJar(
+      scalaVersion(),
+      scalaOrganization(),
+      scalaDocClasspath().map(_.path),
+      scalacPluginClasspath().map(_.path),
+      files.map(_.toString) ++ options
+    ) match{
+      case true =>
+        Result.Success(PathRef(T.dest / "_site"))
+      case false =>
+        Result.Failure("doc generation failed")
+    }
+    Result.Failure("doc generation failed") :Result[mill.api.PathRef]
+  }
+
+  // preview the site locally
+  def serve() = T.command{
+    os.proc("python3", "-m", "http.server", "--directory", site().path).call()
+  }
 }

@@ -52,59 +52,55 @@ trait PublishCommon extends PublishModule {
     )
 }
 
-
 // This module isn't really a ScalaModule, but we use it to generate
 // consolidated documentation using the Scaladoc tool.
-object docs extends CrossScalaModule {
-  def scalaVersion = "2.13.6"
-  def crossScalaVersion = "2.13.6"
-
+object docs extends Cross[DocsModule]("2.13.6")
+class DocsModule(val crossScalaVersion: String) extends CrossScalaModule {
   def docSource = T.source(millSourcePath)
 
   def moduleDeps = Seq(lib1(), lib2())
 
   // generate the static website
+  // adapted from:
+  // https://github.com/com-lihaoyi/mill/discussions/1194
   def site = T {
     import mill.eval.Result
-    T.log.info(s"docSource= ${docSource().path}")
-
-    val failme = 1.0 / 0.0
 
     for {
       child <- os.walk(docSource().path)
       if os.isFile(child)
     } {
-      println(s"child= $child")
+      T.log.info(s"    child= $child")
       os.copy.over(child, T.dest / child.subRelativeTo(docSource().path), createFolders = true)
     }
     val files: Seq[os.Path] = T.traverse(moduleDeps)(_.allSourceFiles)().flatten.map(_.path)
-    println(s"files= $files")
 
+    // the details of the options and zincWorker call are significantly
+    // different between scala-2 scaladoc and scala-3 scaladoc
+    // below is for scala-2 variant
     val options = Seq(
+      "-d", T.dest.toString,
       "-classpath", compileClasspath().map(_.path).mkString(":"),
-      "-siteroot", T.dest.toString,
-      "-project-url", "https://github.com/erikerlandson/mill-testbed",
-      // "-project-logo", "logo.svg",
-      "-project-version", pubVer,
-      "-project", "milltest"
-    ) ++ scalaDocPluginClasspath().map(pluginPathRef => s"-Xplugin:${pluginPathRef.path}")
+      "-rootdir", "/home/eje/git/mill-testbed",
+      "-doc-title", "goo",
+      "-doc-version", "1.0.0"
+    )
 
     zincWorker.worker().docJar(
       scalaVersion(),
       scalaOrganization(),
       scalaDocClasspath().map(_.path),
       scalacPluginClasspath().map(_.path),
-      files.map(_.toString) ++ options
+      options ++ files.map(_.toString)
     ) match{
       case true =>
-        Result.Success(PathRef(T.dest / "_site"))
+        Result.Success(PathRef(T.dest))
       case false =>
         Result.Failure("doc generation failed")
     }
-    Result.Failure("doc generation failed") :Result[mill.api.PathRef]
   }
 
-  // preview the site locally
+  // preview the site locally on http://localhost:8000
   def serve() = T.command{
     os.proc("python3", "-m", "http.server", "--directory", site().path).call()
   }

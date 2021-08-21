@@ -1,8 +1,8 @@
 import mill._, scalalib._, publish._, mill.api.PathRef
 
+val projectName = "milltest"
+val projectVersion = "0.1.0"
 val crossVersions: Seq[String] = List("2.12.8", "2.13.6")
-
-val pubVer = "0.1.0"
 
 object lib1 extends Cross[Lib1Module](crossVersions:_*)
 
@@ -35,10 +35,10 @@ class Lib2Module(val crossScalaVersion: String) extends CrossScalaModule with Pu
 // or add '--release true' flag for automatic sonatype staging/release sequence
 trait PublishCommon extends PublishModule {
     // this is an override to a variable I defined above
-    def publishVersion: T[String] = pubVer
+    def publishVersion: T[String] = projectVersion
 
     // this is an override to add common prefix name, like 'milltest-lib1', 'milltest-lib1', etc
-    def artifactName: T[String] = "milltest-" + millOuterCtx.segments.parts.last
+    def artifactName: T[String] = s"${projectName}-" + millOuterCtx.segments.parts.last
 
     def pomSettings = PomSettings(
         description = artifactName(),

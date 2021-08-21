@@ -1,10 +1,11 @@
 import mill._, scalalib._, publish._, mill.api.PathRef
 
-val projectName = "milltest"
-val projectVersion = "0.1.0"
-val crossVersions: Seq[String] = List("2.12.8", "2.13.6")
 
-object lib1 extends Cross[Lib1Module](crossVersions:_*)
+implicit val thisProjectName: projectContext.ProjectName = "milltest"
+implicit val thisProjectVersion: projectContext.ProjectVersion = "0.1.0"
+implicit val thisCrossVersions: projectContext.CrossVersions = List("2.12.8", "2.13.6")
+
+object lib1 extends Cross[Lib1Module](projectContext.crossVersions:_*)
 
 class Lib1Module(val crossScalaVersion: String) extends CrossScalaModule with PublishCommon {
     object test extends Tests {
@@ -16,7 +17,7 @@ class Lib1Module(val crossScalaVersion: String) extends CrossScalaModule with Pu
     }
 }
 
-object lib2 extends Cross[Lib2Module](crossVersions:_*) {
+object lib2 extends Cross[Lib2Module](projectContext.crossVersions:_*) {
 }
 
 class Lib2Module(val crossScalaVersion: String) extends CrossScalaModule with PublishCommon {
@@ -30,15 +31,36 @@ class Lib2Module(val crossScalaVersion: String) extends CrossScalaModule with Pu
     }
 }
 
+object projectContext {
+    def projectName(implicit v: ProjectName): String = v.value
+    def projectVersion(implicit v: ProjectVersion): String = v.value
+    def crossVersions(implicit v: CrossVersions): Seq[String] = v.value
+
+    case class ProjectName(val value: String)
+    object ProjectName {
+        implicit def lift(s: String): ProjectName = ProjectName(s)
+    }
+
+    case class ProjectVersion(val value: String)
+    object ProjectVersion {
+        implicit def lift(s: String): ProjectVersion = ProjectVersion(s)
+    }
+
+    case class CrossVersions(val value: Seq[String])
+    object CrossVersions {
+        implicit def lift(s: Seq[String]): CrossVersions = CrossVersions(s)
+    }
+}
+
 // ./mill mill.scalalib.PublishModule/publishAll __.publishArtifacts '<user>:<passwd>'
 // then log into oss.sonatype.org and release manually
 // or add '--release true' flag for automatic sonatype staging/release sequence
 trait PublishCommon extends PublishModule {
     // this is an override to a variable I defined above
-    def publishVersion: T[String] = projectVersion
+    def publishVersion: T[String] = projectContext.projectVersion
 
     // this is an override to add common prefix name, like 'milltest-lib1', 'milltest-lib1', etc
-    def artifactName: T[String] = s"${projectName}-" + millOuterCtx.segments.parts.last
+    def artifactName: T[String] = s"${projectContext.projectName}-" + millOuterCtx.segments.parts.last
 
     def pomSettings = PomSettings(
         description = artifactName(),
@@ -56,8 +78,6 @@ trait PublishCommon extends PublishModule {
 // consolidated documentation using the Scaladoc tool.
 object docs extends Cross[DocsModule]("2.13.6")
 class DocsModule(val crossScalaVersion: String) extends CrossScalaModule {
-  def docSource = T.source(millSourcePath)
-
   def moduleDeps = Seq(lib1(), lib2())
 
   // generate the static website
@@ -66,12 +86,16 @@ class DocsModule(val crossScalaVersion: String) extends CrossScalaModule {
   def site = T {
     import mill.eval.Result
 
-    for {
-      child <- os.walk(docSource().path)
-      if os.isFile(child)
-    } {
-      T.log.info(s"    child= $child")
-      os.copy.over(child, T.dest / child.subRelativeTo(docSource().path), createFolders = true)
+    if (!os.isDir(millSourcePath)) {
+        T.log.info(s"""Mill source path for docs "${millSourcePath}" not found, ignoring ...""")
+    } else {
+        val sitefiles = os.walk(millSourcePath, skip = (p: os.Path) => !os.isFile(p))
+        T.log.info(s"Staging ${sitefiles.length} site files from site source path ${millSourcePath} ...") 
+        for {
+          f <- sitefiles
+        } {
+          os.copy.over(f, T.dest / f.subRelativeTo(millSourcePath), createFolders = true)
+        }
     }
     val files: Seq[os.Path] = T.traverse(moduleDeps)(_.allSourceFiles)().flatten.map(_.path)
 
@@ -82,8 +106,8 @@ class DocsModule(val crossScalaVersion: String) extends CrossScalaModule {
       "-d", T.dest.toString,
       "-classpath", compileClasspath().map(_.path).mkString(":"),
       "-rootdir", "/home/eje/git/mill-testbed",
-      "-doc-title", "goo",
-      "-doc-version", "1.0.0"
+      "-doc-title", projectContext.projectName,
+      "-doc-version", projectContext.projectVersion
     )
 
     zincWorker.worker().docJar(
@@ -101,7 +125,8 @@ class DocsModule(val crossScalaVersion: String) extends CrossScalaModule {
   }
 
   // preview the site locally on http://localhost:8000
-  def serve() = T.command{
+  def serve() = T.command {
+    T.log.info(s"serving on http://localhost:8000")
     os.proc("python3", "-m", "http.server", "--directory", site().path).call()
   }
 }

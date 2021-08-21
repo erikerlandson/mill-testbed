@@ -80,6 +80,9 @@ object docs extends Cross[DocsModule]("2.13.6")
 class DocsModule(val crossScalaVersion: String) extends CrossScalaModule {
   def moduleDeps = Seq(lib1(), lib2())
 
+  // scaladoc or javadoc goes in this subdirectory of T.dest
+  def apiSubPath: os.SubPath = os.sub / "api" / "latest"
+
   // generate the static website
   // adapted from:
   // https://github.com/com-lihaoyi/mill/discussions/1194
@@ -99,13 +102,16 @@ class DocsModule(val crossScalaVersion: String) extends CrossScalaModule {
     }
     val files: Seq[os.Path] = T.traverse(moduleDeps)(_.allSourceFiles)().flatten.map(_.path)
 
+    val apiPath: os.Path = T.dest / apiSubPath
+    os.makeDir.all(apiPath)
+
     // the details of the options and zincWorker call are significantly
     // different between scala-2 scaladoc and scala-3 scaladoc
     // below is for scala-2 variant
     val options = Seq(
-      "-d", T.dest.toString,
+      "-d", apiPath.toString,
       "-classpath", compileClasspath().map(_.path).mkString(":"),
-      "-rootdir", "/home/eje/git/mill-testbed",
+      //"-rootdir", "/home/eje/git/mill-testbed",
       "-doc-title", projectContext.projectName,
       "-doc-version", projectContext.projectVersion
     )
@@ -124,9 +130,12 @@ class DocsModule(val crossScalaVersion: String) extends CrossScalaModule {
     }
   }
 
-  // preview the site locally on http://localhost:8000
+  // preview the site locally
+  // use './mill -i ...', or python http server may remain as zombie
   def serve() = T.command {
+    val t: String= (site().path / "api" / "latest").toString
+    T.log.info(s"t= $t")
     T.log.info(s"serving on http://localhost:8000")
-    os.proc("python3", "-m", "http.server", "--directory", site().path).call()
+    os.proc("python3", "-m", "http.server", "--directory", (site().path / apiSubPath).toString).call()
   }
 }

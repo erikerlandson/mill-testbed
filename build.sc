@@ -61,6 +61,8 @@ object site extends ScaladocSiteModule {
 
     // example of bridging non-cross ScalaSiteModule to cross-compiled modules
     override def scaladocModules = Seq(lib1(scaladocScalaVersion), lib2(scaladocScalaVersion))
+
+    def scaladocPushGitURI = "git@github.com:erikerlandson/mill-testbed.git"
 }
 
 // This module isn't really a ScalaModule, but we use it to generate
@@ -71,14 +73,6 @@ trait ScaladocSiteModule extends ScalaModule {
     def scaladocScalaVersion: String
 
     def scaladocModules: Seq[JavaModule] = List.empty[JavaModule]
-
-    // scaladoc goes in this subdirectory
-    // TODO: add javadoc support, similar to sbt unidoc?
-    def scaladocSubPath: os.SubPath = os.sub / "api" / "latest"
-
-    def scaladocServePort: Int = 8000
-
-    def scalaVersion = scaladocScalaVersion
 
     // stage the static website and/or doc into the 'stage' task destination directory
     // adapted from:
@@ -135,14 +129,15 @@ trait ScaladocSiteModule extends ScalaModule {
     // preview the site locally
     // use './mill -i ...', or python http server may remain as zombie
     def serve() = T.command {
-        require(scaladocServePort > 0)
+        val port = scaladocServePort
+        require((port > 0) && (port < 65536))
 
         // this also runs 'stage' target as a dependency
         val stageDir = (stage().path).toString
 
         try {
-            T.log.info(s"serving on http://localhost:${scaladocServePort}")
-            os.proc("python3", "-m", "http.server", s"${scaladocServePort}", "--directory", stageDir).call()
+            T.log.info(s"serving on http://localhost:${port}")
+            os.proc("python3", "-m", "http.server", s"${port}", "--directory", stageDir).call()
             ()
         } catch {
             case _: Throwable =>
@@ -155,15 +150,17 @@ trait ScaladocSiteModule extends ScalaModule {
         // this also runs 'stage' target as a dependency
         val stageDir = (stage().path).toString
 
-        val workBranch = pushWorkingBranch
-        val remoteBranch = pushRemoteBranch
-        val gitURI = "git@github.com:erikerlandson/mill-testbed.git"
+        val workBranch = scaladocPushWorkingBranch
+        val remoteBranch = scaladocPushRemoteBranch
+        val gitURI = scaladocPushGitURI
+        val username = scaladocPushUserName
+        val useremail = scaladocPushUserEmail
 
         T.log.info(s"pushing site to branch $remoteBranch of $gitURI")
 
         os.proc("git", "-C", stageDir, "init", "--quiet", s"--initial-branch=${workBranch}").call()
-        os.proc("git", "-C", stageDir, "config", "user.name", "Erik Erlandson").call()
-        os.proc("git", "-C", stageDir, "config", "user.email", "eerlands@redhat.com").call()
+        os.proc("git", "-C", stageDir, "config", "user.name", username).call()
+        os.proc("git", "-C", stageDir, "config", "user.email", useremail).call()
         os.proc("git", "-C", stageDir, "add", ".").call()
         os.proc("git", "-C", stageDir, "commit", "-m", "push from mill").call()
         os.proc("git", "-C", stageDir, "push", "-f", gitURI, s"${workBranch}:${remoteBranch}").call()
@@ -172,9 +169,24 @@ trait ScaladocSiteModule extends ScalaModule {
         os.proc("rm", "-rf", s"${stageDir}/.git").call()
     }
 
-    def pushWorkingBranch: String = "main"
+    // currently no default for this
+    def scaladocPushGitURI: String
 
-    def pushRemoteBranch: String = "gh-pages"
+    def scaladocPushWorkingBranch: String = "main"
+
+    def scaladocPushRemoteBranch: String = "gh-pages"
+
+    def scaladocPushUserName: String = os.proc("git", "config", "user.name").call().out.string
+
+    def scaladocPushUserEmail: String = os.proc("git", "config", "user.email").call().out.string
+
+    def scalaVersion = scaladocScalaVersion
+
+    // scaladoc goes in this subdirectory
+    // TODO: add javadoc support, similar to sbt unidoc?
+    def scaladocSubPath: os.SubPath = os.sub / "api" / "latest"
+
+    def scaladocServePort: Int = 8000
 
     def defaultSiteIndex: String =
         s"""|<!DOCTYPE html>

@@ -127,7 +127,6 @@ trait ScaladocSiteModule extends ScalaModule {
     }
 
     // preview the site locally
-    // use './mill -i ...', or python http server may remain as zombie
     def serve() = T.command {
         val port = scaladocServePort
         require((port > 0) && (port < 65536))
@@ -137,12 +136,12 @@ trait ScaladocSiteModule extends ScalaModule {
 
         try {
             T.log.info(s"serving on http://localhost:${port}")
-            os.proc("python3", "-m", "http.server", s"${port}", "--directory", stageDir).call()
-            ()
+            //os.proc("python3", "-m", "http.server", s"${port}", "--directory", stageDir).call()
+            // invoking via runSubprocess prevents zombie http server on exit
+            mill.modules.Jvm.runSubprocess(List("python3", "-m", "http.server", s"${port}", "--directory", stageDir), T.env(T.ctx()), os.pwd)
         } catch {
             case _: Throwable =>
                 T.log.error("Server startup failed - is python3 installed?")
-                ()
         }
     }
 

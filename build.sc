@@ -66,82 +66,109 @@ object site extends ScaladocSiteModule {
 // This module isn't really a ScalaModule, but we use it to generate
 // consolidated documentation using the Scaladoc tool.
 trait ScaladocSiteModule extends ScalaModule {
-  // would be preferable to just use standard scalaVersion here to be more DRY, but
-  // scalaVersion is a Task and I haven't figured out how to invoke a Task in a non-Task method
-  def scaladocScalaVersion: String
+    // would be preferable to just use standard scalaVersion here to be more DRY, but
+    // scalaVersion is a Task and I haven't figured out how to invoke a Task in a non-Task method
+    def scaladocScalaVersion: String
 
-  def scaladocModules: Seq[JavaModule] = List.empty[JavaModule]
+    def scaladocModules: Seq[JavaModule] = List.empty[JavaModule]
 
-  // scaladoc goes in this subdirectory
-  // TODO: add javadoc support, similar to sbt unidoc?
-  def scaladocSubPath: os.SubPath = os.sub / "api" / "latest"
+    // scaladoc goes in this subdirectory
+    // TODO: add javadoc support, similar to sbt unidoc?
+    def scaladocSubPath: os.SubPath = os.sub / "api" / "latest"
 
-  def scaladocServePort: Int = 8000
+    def scaladocServePort: Int = 8000
 
-  def scalaVersion = scaladocScalaVersion
+    def scalaVersion = scaladocScalaVersion
 
-  // stage the static website and/or doc into the 'stage' task destination directory
-  // adapted from:
-  // https://github.com/com-lihaoyi/mill/discussions/1194
-  def stage = T {
-      import mill.eval.Result
+    // stage the static website and/or doc into the 'stage' task destination directory
+    // adapted from:
+    // https://github.com/com-lihaoyi/mill/discussions/1194
+    def stage = T {
+        import mill.eval.Result
 
-      val scaladocFiles: Seq[os.Path] =
-          T.traverse(scaladocModules)(_.allSourceFiles)().flatten.map(_.path)
+        if (!os.isDir(millSourcePath)) {
+            T.log.error(s"""Source path "${millSourcePath}" not found, ignoring""")
+            T.log.error(s"Staging index.html from method defaultSiteIndex")
+            os.write.over(T.dest / "index.html", defaultSiteIndex)
+        } else {
+            val sitefiles = os.walk(millSourcePath, skip = (p: os.Path) => !os.isFile(p))
+            T.log.info(s"Staging ${sitefiles.length} site files from site source path ${millSourcePath}") 
+            for {
+                f <- sitefiles
+            } {
+                os.copy.over(f, T.dest / f.subRelativeTo(millSourcePath), createFolders = true)
+            }
+        }
 
-      val scaladocPath: os.Path = T.dest / scaladocSubPath
-      os.makeDir.all(scaladocPath)
+        val scaladocFiles: Seq[os.Path] =
+            T.traverse(scaladocModules)(_.allSourceFiles)().flatten.map(_.path)
 
-      // the details of the options and zincWorker call are significantly
-      // different between scala-2 scaladoc and scala-3 scaladoc
-      // below is for scala-2 variant
-      val options: Seq[String] = Seq(
-          "-doc-title", projectContext.projectName,
-          "-doc-version", projectContext.projectVersion,
-          "-d", scaladocPath.toString,
-          "-classpath", compileClasspath().map(_.path).mkString(":"),
-      )
+        T.log.info(s"Staging scaladoc for ${scaladocFiles.length} files")
 
-      val docReturn = zincWorker.worker().docJar(
-          scalaVersion(),
-          scalaOrganization(),
-          scalaDocClasspath().map(_.path),
-          scalacPluginClasspath().map(_.path),
-          options ++ scaladocFiles.map(_.toString)
-      ) match{
-          case true =>  Result.Success(PathRef(T.dest))
-          case false => Result.Failure("doc generation failed")
-      }
+        val scaladocPath: os.Path = T.dest / scaladocSubPath
+        os.makeDir.all(scaladocPath)
 
-      if (!os.isDir(millSourcePath)) {
-          T.log.error(s"""Source path "${millSourcePath}" not found, ignoring ...""")
-      } else {
-          val sitefiles = os.walk(millSourcePath, skip = (p: os.Path) => !os.isFile(p))
-          T.log.info(s"Staging ${sitefiles.length} site files from site source path ${millSourcePath} ...") 
-          for {
-              f <- sitefiles
-          } {
-              os.copy.over(f, T.dest / f.subRelativeTo(millSourcePath), createFolders = true)
-          }
-      }
+        // the details of the options and zincWorker call are significantly
+        // different between scala-2 scaladoc and scala-3 scaladoc
+        // below is for scala-2 variant
+        val options: Seq[String] = Seq(
+            "-doc-title", projectContext.projectName,
+            "-doc-version", projectContext.projectVersion,
+            "-d", scaladocPath.toString,
+            "-classpath", compileClasspath().map(_.path).mkString(":"),
+        )
 
-      docReturn
-  }
+        val docReturn = zincWorker.worker().docJar(
+            scalaVersion(),
+            scalaOrganization(),
+            scalaDocClasspath().map(_.path),
+            scalacPluginClasspath().map(_.path),
+            options ++ scaladocFiles.map(_.toString)
+        ) match{
+            case true =>  Result.Success(PathRef(T.dest))
+            case false => Result.Failure("doc generation failed")
+        }
 
-  // preview the site locally
-  // use './mill -i ...', or python http server may remain as zombie
-  def serve() = T.command {
-    require(scaladocServePort > 0)
-    T.log.info(s"serving on http://localhost:${scaladocServePort}")
-    try {
-        os.proc("python3", "-m", "http.server", s"${scaladocServePort}", "--directory", (stage().path / scaladocSubPath).toString).call()
-        ()
-    } catch {
-        case _: Throwable =>
-            T.log.error("Server startup failed - is python3 installed?")
-            ()
+        docReturn
     }
-  }
+
+    // preview the site locally
+    // use './mill -i ...', or python http server may remain as zombie
+    def serve() = T.command {
+        require(scaladocServePort > 0)
+        T.log.info(s"serving on http://localhost:${scaladocServePort}")
+        try {
+            os.proc("python3", "-m", "http.server", s"${scaladocServePort}", "--directory", (stage().path / scaladocSubPath).toString).call()
+            ()
+        } catch {
+            case _: Throwable =>
+                T.log.error("Server startup failed - is python3 installed?")
+                ()
+        }
+    }
+
+    def defaultSiteIndex: String =
+        s"""|<!DOCTYPE html>
+            |<html lang="en">
+            |<head>
+            |    <meta charset="UTF-8">
+            |    <title>Project Documentation</title>
+            |    <script language="JavaScript">
+            |    <!--
+            |    function doRedirect()
+            |    {
+            |        window.location.replace("${scaladocSubPath}");
+            |    }
+            |    doRedirect();
+            |    //-->
+            |    </script>
+            |</head>
+            |<body>
+            |<a href="${scaladocSubPath}">Go to the project documentation
+            |</a>
+            |</body>
+            |</html>        
+            |""".stripMargin
 }
 
 object projectContext {

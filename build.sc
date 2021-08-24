@@ -138,7 +138,7 @@ trait ScaladocSiteModule extends ScalaModule {
         require(scaladocServePort > 0)
         T.log.info(s"serving on http://localhost:${scaladocServePort}")
         try {
-            os.proc("python3", "-m", "http.server", s"${scaladocServePort}", "--directory", (stage().path / scaladocSubPath).toString).call()
+            os.proc("python3", "-m", "http.server", s"${scaladocServePort}", "--directory", (stage().path).toString).call()
             ()
         } catch {
             case _: Throwable =>

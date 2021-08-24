@@ -136,9 +136,13 @@ trait ScaladocSiteModule extends ScalaModule {
     // use './mill -i ...', or python http server may remain as zombie
     def serve() = T.command {
         require(scaladocServePort > 0)
-        T.log.info(s"serving on http://localhost:${scaladocServePort}")
+
+        // this also runs 'stage' target as a dependency
+        val stageDir = (stage().path).toString
+
         try {
-            os.proc("python3", "-m", "http.server", s"${scaladocServePort}", "--directory", (stage().path).toString).call()
+            T.log.info(s"serving on http://localhost:${scaladocServePort}")
+            os.proc("python3", "-m", "http.server", s"${scaladocServePort}", "--directory", stageDir).call()
             ()
         } catch {
             case _: Throwable =>
@@ -146,6 +150,31 @@ trait ScaladocSiteModule extends ScalaModule {
                 ()
         }
     }
+
+    def push() = T.command {
+        // this also runs 'stage' target as a dependency
+        val stageDir = (stage().path).toString
+
+        val workBranch = pushWorkingBranch
+        val remoteBranch = pushRemoteBranch
+        val gitURI = "git@github.com:erikerlandson/mill-testbed.git"
+
+        T.log.info(s"pushing site to branch $remoteBranch of $gitURI")
+
+        os.proc("git", "-C", stageDir, "init", "--quiet", s"--initial-branch=${workBranch}").call()
+        os.proc("git", "-C", stageDir, "config", "user.name", "Erik Erlandson").call()
+        os.proc("git", "-C", stageDir, "config", "user.email", "eerlands@redhat.com").call()
+        os.proc("git", "-C", stageDir, "add", ".").call()
+        os.proc("git", "-C", stageDir, "commit", "-m", "push from mill").call()
+        os.proc("git", "-C", stageDir, "push", "-f", gitURI, s"${workBranch}:${remoteBranch}").call()
+
+        T.log.info("cleaning up git working directory")
+        os.proc("rm", "-rf", s"${stageDir}/.git").call()
+    }
+
+    def pushWorkingBranch: String = "main"
+
+    def pushRemoteBranch: String = "gh-pages"
 
     def defaultSiteIndex: String =
         s"""|<!DOCTYPE html>

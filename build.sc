@@ -1,8 +1,12 @@
-import mill._, scalalib._, publish._, mill.api.PathRef
+import mill._, scalalib._, scalajslib._, publish._, mill.api.PathRef
 
-implicit val thisProjectName: projectContext.ProjectName = "milltest"
-implicit val thisProjectVersion: projectContext.ProjectVersion = "0.1.0"
-implicit val thisCrossVersions: projectContext.CrossVersions = List("2.12.8", "2.13.6")
+object projectContext {
+    def projectName: String = "milltest"
+    def projectVersion: String = "0.1.1"
+    def crossVersions: Seq[String] = List("2.12.13", "2.13.4")
+    // patch versions matter here in terms of what scala and scalajs pairs exist
+    def crossVersionsJS: Seq[(String, String)] = List(("2.12.13", "1.4.0"), ("2.13.4", "1.4.0"))
+}
 
 object lib1 extends Cross[Lib1Module](projectContext.crossVersions:_*)
 
@@ -16,8 +20,7 @@ class Lib1Module(val crossScalaVersion: String) extends CrossScalaModule with Pu
     }
 }
 
-object lib2 extends Cross[Lib2Module](projectContext.crossVersions:_*) {
-}
+object lib2 extends Cross[Lib2Module](projectContext.crossVersions:_*)
 
 class Lib2Module(val crossScalaVersion: String) extends CrossScalaModule with PublishCommon {
     def moduleDeps = Seq(lib1())
@@ -28,6 +31,35 @@ class Lib2Module(val crossScalaVersion: String) extends CrossScalaModule with Pu
             ivy"com.lihaoyi::utest:0.7.10",
         )
     }
+}
+
+// using as a cross-platform design pattern:
+// https://github.com/com-lihaoyi/fastparse/blob/master/build.sc
+object lib3 extends Module {
+    object jvm extends Cross[JvmModule](projectContext.crossVersions:_*)
+
+    class JvmModule(val crossScalaVersion: String) extends CrossPlatformCommon {
+        def scalaPlatform = "jvm"
+        def moduleDeps = List(lib1(), lib2())
+    }
+
+    object js extends Cross[JsModule](projectContext.crossVersionsJS:_*)
+
+    class JsModule(val crossScalaVersion: String, crossScalaVersionJS: String) extends CrossPlatformCommon with ScalaJSModule {
+        def scalaPlatform = "js"
+        def scalaJSVersion = crossScalaVersionJS
+        def moduleDeps = List(lib1(), lib2())
+    }
+}
+
+trait CrossPlatformCommon extends CrossScalaModule with PublishCommon {
+    // scala compile platform, such as "jvm" or "js" or "native"
+    def scalaPlatform: String
+
+    def sources = T.sources(
+        millSourcePath / "src",
+        millSourcePath / s"src-${scalaPlatform}"
+    )
 }
 
 // ./mill mill.scalalib.PublishModule/publishAll __.publishArtifacts '<user>:<passwd>'
@@ -54,7 +86,7 @@ trait PublishCommon extends PublishModule {
 
 object site extends ScaladocSiteModule {
     // standard scalaVersion method is a task, which only works inside other tasks
-    def scaladocScalaVersion = "2.13.6"
+    def scaladocScalaVersion = "2.13.4"
 
     // specify subdirectory for scaladoc
     override def scaladocSubPath: os.SubPath = os.sub / "api" / "latest"
@@ -209,25 +241,4 @@ trait ScaladocSiteModule extends ScalaModule {
             |</body>
             |</html>        
             |""".stripMargin
-}
-
-object projectContext {
-    def projectName(implicit v: ProjectName): String = v.value
-    def projectVersion(implicit v: ProjectVersion): String = v.value
-    def crossVersions(implicit v: CrossVersions): Seq[String] = v.value
-
-    case class ProjectName(val value: String)
-    object ProjectName {
-        implicit def lift(s: String): ProjectName = ProjectName(s)
-    }
-
-    case class ProjectVersion(val value: String)
-    object ProjectVersion {
-        implicit def lift(s: String): ProjectVersion = ProjectVersion(s)
-    }
-
-    case class CrossVersions(val value: Seq[String])
-    object CrossVersions {
-        implicit def lift(s: Seq[String]): CrossVersions = CrossVersions(s)
-    }
 }

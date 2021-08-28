@@ -69,9 +69,6 @@ trait PublishCommon extends PublishModule {
     // this is an override to a variable I defined above
     def publishVersion: T[String] = projectContext.projectVersion
 
-    // this is an override to add common prefix name, like 'milltest-lib1', 'milltest-lib1', etc
-    def artifactName: T[String] = s"${projectContext.projectName}-" + millOuterCtx.segments.parts.last
-
     def pomSettings = PomSettings(
         description = artifactName(),
         organization = "com.manyangled",
@@ -82,6 +79,22 @@ trait PublishCommon extends PublishModule {
             Developer("erikerlandson", "Erik Erlandson", "http://erikerlandson.github.io/")
         )
     )
+
+    // prepend project name to target names
+    def artifactName: T[String] = T {
+        millOuterCtx.segments.parts match {
+           case Seq(name) => s"${projectContext.projectName}-${name}"
+           case Seq(name, p) if platformVals.contains(p) => s"${projectContext.projectName}-${name}"
+           case u => {
+               val estr = s"unrecognized segments pattern: $u"
+               T.log.error(estr)
+               throw new Exception(estr)
+               estr
+           }
+        }
+    }
+
+    private val platformVals = Set("jvm", "js")
 }
 
 object site extends ScaladocSiteModule {
